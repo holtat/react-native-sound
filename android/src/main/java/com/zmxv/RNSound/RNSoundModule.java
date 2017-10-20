@@ -1,7 +1,5 @@
 package com.zmxv.RNSound;
 
-import android.content.Context;
-import android.content.res.AssetFileDescriptor;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
@@ -14,8 +12,8 @@ import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.ReadableMapKeySeyIterator;
 import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.modules.core.ExceptionsManagerModule;
 
 import java.io.File;
 import java.util.HashMap;
@@ -28,12 +26,10 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
   Map<Integer, MediaPlayer> playerPool = new HashMap<>();
   ReactApplicationContext context;
   final static Object NULL = null;
-  String category;
 
   public RNSoundModule(ReactApplicationContext context) {
     super(context);
     this.context = context;
-    this.category = null;
   }
 
   @Override
@@ -42,8 +38,8 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void prepare(final String fileName, final Integer key, final ReadableMap options, final Callback callback) {
-    MediaPlayer player = createMediaPlayer(fileName);
+  public void prepare(final String fileName, final Integer key, ReadableMap options, final Callback callback) {
+    MediaPlayer player = createMediaPlayer(fileName, options.getMap("headers"));
     if (player == null) {
       WritableMap e = Arguments.createMap();
       e.putInt("code", -1);
@@ -52,27 +48,6 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
     }
 
     final RNSoundModule module = this;
-
-    if (module.category != null) {
-      Integer category = null;
-      switch (module.category) {
-        case "Playback":
-          category = AudioManager.STREAM_MUSIC;
-          break;
-        case "Ambient":
-          category = AudioManager.STREAM_NOTIFICATION;
-          break;
-        case "System":
-          category = AudioManager.STREAM_SYSTEM;
-          break;
-        default:
-          Log.e("RNSoundModule", String.format("Unrecognised category %s", module.category));
-          break;
-      }
-      if (category != null) {
-        player.setAudioStreamType(category);
-      }
-    }
 
     player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
       boolean callbackWasCalled = false;
@@ -123,43 +98,28 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
     }
   }
 
-  protected MediaPlayer createMediaPlayer(final String fileName) {
+  protected MediaPlayer createMediaPlayer(final String fileName, ReadableMap headers) {
     int res = this.context.getResources().getIdentifier(fileName, "raw", this.context.getPackageName());
-    MediaPlayer mediaPlayer = new MediaPlayer();
     if (res != 0) {
-      try {
-        AssetFileDescriptor afd = context.getResources().openRawResourceFd(res);
-        mediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
-        afd.close();
-      } catch (IOException e) {
-        Log.e("RNSoundModule", "Exception", e);
-        return null;
-      }
-      return mediaPlayer;
+      return MediaPlayer.create(this.context, res);
     }
-
-    if (fileName.startsWith("http://") || fileName.startsWith("https://")) {
+    if(fileName.startsWith("http://") || fileName.startsWith("https://")) {
+      MediaPlayer mediaPlayer = new MediaPlayer();
       mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
       Log.i("RNSoundModule", fileName);
+
+      Map<String, String> reqHeaders = new HashMap<>();
+      if (headers.hasKey("Authorization")) {
+        reqHeaders.put("Authorization", headers.getString("Authorization"));
+      }
+
       try {
-        mediaPlayer.setDataSource(fileName);
+        mediaPlayer.setDataSource(this.context, Uri.parse(fileName), reqHeaders);
       } catch(IOException e) {
         Log.e("RNSoundModule", "Exception", e);
         return null;
       }
       return mediaPlayer;
-    }
-
-    if (fileName.startsWith("asset:/")){
-        try {
-            AssetFileDescriptor descriptor = this.context.getAssets().openFd(fileName.replace("asset:/", ""));
-            mediaPlayer.setDataSource(descriptor.getFileDescriptor(), descriptor.getStartOffset(), descriptor.getLength());
-            descriptor.close();
-            return mediaPlayer;
-        } catch(IOException e) {
-            Log.e("RNSoundModule", "Exception", e);
-            return null;
-        }
     }
 
     File file = new File(fileName);
@@ -231,14 +191,6 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
   }
 
   @ReactMethod
-  public void reset(final Integer key) {
-    MediaPlayer player = this.playerPool.get(key);
-    if (player != null) {
-      player.reset();
-    }
-  }
-
-  @ReactMethod
   public void release(final Integer key) {
     MediaPlayer player = this.playerPool.get(key);
     if (player != null) {
@@ -253,28 +205,6 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
     if (player != null) {
       player.setVolume(left, right);
     }
-  }
-
-  @ReactMethod
-  public void getSystemVolume(final Callback callback) {
-    try {
-      AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-
-      callback.invoke(NULL, (float) audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) / audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
-    } catch (Exception error) {
-      WritableMap e = Arguments.createMap();
-      e.putInt("code", -1);
-      e.putString("message", error.getMessage());
-      callback.invoke(e);
-    }
-  }
-
-  @ReactMethod
-  public void setSystemVolume(final Float value) {
-    AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-
-    int volume = Math.round(audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * value);
-    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0);
   }
 
   @ReactMethod
@@ -321,11 +251,6 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
       audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
       audioManager.setSpeakerphoneOn(speaker);
     }
-  }
-
-  @ReactMethod
-  public void setCategory(final String category, final Boolean mixWithOthers) {
-    this.category = category;
   }
 
   @ReactMethod
