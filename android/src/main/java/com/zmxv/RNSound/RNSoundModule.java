@@ -1,5 +1,7 @@
 package com.zmxv.RNSound;
 
+import android.content.Context;
+import android.content.res.AssetFileDescriptor;
 import android.media.MediaPlayer;
 import android.media.MediaPlayer.OnCompletionListener;
 import android.media.MediaPlayer.OnErrorListener;
@@ -12,8 +14,8 @@ import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
-import com.facebook.react.bridge.ReadableMapKeySeyIterator;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.modules.core.ExceptionsManagerModule;
 
 import java.io.File;
 import java.util.HashMap;
@@ -26,6 +28,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
   Map<Double, MediaPlayer> playerPool = new HashMap<>();
   ReactApplicationContext context;
   final static Object NULL = null;
+  String category;
   Boolean mixWithOthers = true;
 
   Double focusedPlayerKey;
@@ -34,6 +37,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
   public RNSoundModule(ReactApplicationContext context) {
     super(context);
     this.context = context;
+    this.category = null;
   }
 
   private void setOnPlay(boolean isPlaying, final Integer playerKey) {
@@ -144,11 +148,20 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
 
   protected MediaPlayer createMediaPlayer(final String fileName, ReadableMap headers) {
     int res = this.context.getResources().getIdentifier(fileName, "raw", this.context.getPackageName());
+    MediaPlayer mediaPlayer = new MediaPlayer();
     if (res != 0) {
-      return MediaPlayer.create(this.context, res);
+      try {
+        AssetFileDescriptor afd = context.getResources().openRawResourceFd(res);
+        mediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+        afd.close();
+      } catch (IOException e) {
+        Log.e("RNSoundModule", "Exception", e);
+        return null;
+      }
+      return mediaPlayer;
     }
-    if(fileName.startsWith("http://") || fileName.startsWith("https://")) {
-      MediaPlayer mediaPlayer = new MediaPlayer();
+
+    if (fileName.startsWith("http://") || fileName.startsWith("https://")) {
       mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
       Log.i("RNSoundModule", fileName);
 
@@ -164,6 +177,18 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
         return null;
       }
       return mediaPlayer;
+    }
+
+    if (fileName.startsWith("asset:/")){
+        try {
+            AssetFileDescriptor descriptor = this.context.getAssets().openFd(fileName.replace("asset:/", ""));
+            mediaPlayer.setDataSource(descriptor.getFileDescriptor(), descriptor.getStartOffset(), descriptor.getLength());
+            descriptor.close();
+            return mediaPlayer;
+        } catch(IOException e) {
+            Log.e("RNSoundModule", "Exception", e);
+            return null;
+        }
     }
 
     File file = new File(fileName);
@@ -300,6 +325,28 @@ public class RNSoundModule extends ReactContextBaseJavaModule implements AudioMa
     if (player != null) {
       player.setVolume(left, right);
     }
+  }
+
+  @ReactMethod
+  public void getSystemVolume(final Callback callback) {
+    try {
+      AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+
+      callback.invoke(NULL, (float) audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) / audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+    } catch (Exception error) {
+      WritableMap e = Arguments.createMap();
+      e.putInt("code", -1);
+      e.putString("message", error.getMessage());
+      callback.invoke(e);
+    }
+  }
+
+  @ReactMethod
+  public void setSystemVolume(final Float value) {
+    AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+
+    int volume = Math.round(audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * value);
+    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0);
   }
 
   @ReactMethod

@@ -7,7 +7,7 @@ var resolveAssetSource = require("react-native/Libraries/Image/resolveAssetSourc
 var eventEmitter = new NativeEventEmitter(RNSound);
 
 function isRelativePath(path) {
-  return !/^(\/|http(s?))/.test(path);
+  return !/^(\/|http(s?)|asset)/.test(path);
 }
 
 // Hash function to compute key from the filename
@@ -80,7 +80,7 @@ function Sound(filename, basePath, onError, options = {}) {
       this._loaded = true;
       this.registerOnPlay();
     }
-    onError && onError(error);
+    onError && onError(error, props);
   });
 }
 
@@ -128,6 +128,7 @@ Sound.prototype.reset = function() {
 Sound.prototype.release = function() {
   if (this._loaded) {
     RNSound.release(this._key);
+    this._loaded = false;
     if (!IsWindows) {
       if (this.onPlaySubscription != null) {
         this.onPlaySubscription.remove();
@@ -158,6 +159,20 @@ Sound.prototype.setVolume = function(value) {
     } else {
       RNSound.setVolume(this._key, value);
     }
+  }
+  return this;
+};
+
+Sound.prototype.getSystemVolume = function(callback) {
+  if(IsAndroid) {
+    RNSound.getSystemVolume(callback);
+  }
+  return this;
+};
+
+Sound.prototype.setSystemVolume = function(value) {
+  if (IsAndroid) {
+    RNSound.setSystemVolume(value);
   }
   return this;
 };
@@ -248,7 +263,7 @@ Sound.setActive = function(value) {
 };
 
 Sound.setCategory = function(value, mixWithOthers = false) {
-  if (!IsAndroid && !IsWindows) {
+  if (!IsWindows) {
     RNSound.setCategory(value, mixWithOthers);
   }
 };
